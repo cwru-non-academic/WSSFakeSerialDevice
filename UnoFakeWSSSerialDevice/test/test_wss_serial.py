@@ -109,27 +109,39 @@ def format_bytes(data: bytes) -> str:
     return " ".join(f"{b:02X}" for b in data)
 
 
-def run_clear_test(port: serial.Serial) -> bool:
+def run_clear_test(port: serial.Serial, iterations: int = 1) -> bool:
     payload = bytes([WSS_CLEAR, 0x01, 0x00])
-    frame = build_frame(payload)
-    print(f"TX CLEAR: {format_bytes(payload)}")
-    port.write(frame)
-    port.flush()
+    overall_ok = True
 
-    reply = read_frame(port, timeout=2.0)
-    if not reply:
-        print("RX CLEAR: timeout waiting for reply")
-        return False
+    for attempt in range(1, iterations + 1):
+        if iterations > 1:
+            print(f"\nCLEAR attempt {attempt}/{iterations}")
 
-    print(f"RX CLEAR frame: {format_bytes(reply)}")
+        frame = build_frame(payload)
+        print(f"TX CLEAR: {format_bytes(payload)}")
+        port.reset_input_buffer()
+        start = time.perf_counter()
+        port.write(frame)
+        port.flush()
 
-    sender, target = reply[0], reply[1]
-    rx_payload = reply[2:-1]
-    print(f"RX CLEAR sender=0x{sender:02X} target=0x{target:02X} payload={format_bytes(rx_payload)}")
+        reply = read_frame(port, timeout=2.0)
+        if not reply:
+            print("RX CLEAR: timeout waiting for reply")
+            overall_ok = False
+            continue
 
-    ok = (sender == DEVICE_ID and target == HOST_ID and rx_payload == payload)
-    print("CLEAR result:", "PASS" if ok else "FAIL")
-    return ok
+        latency_ms = (time.perf_counter() - start) * 1000.0
+        print(f"RX CLEAR frame: {format_bytes(reply)} (latency {latency_ms:.1f} ms)")
+
+        sender, target = reply[0], reply[1]
+        rx_payload = reply[2:-1]
+        print(f"RX CLEAR sender=0x{sender:02X} target=0x{target:02X} payload={format_bytes(rx_payload)}")
+
+        ok = (sender == DEVICE_ID and target == HOST_ID and rx_payload == payload)
+        print("CLEAR result:", "PASS" if ok else "FAIL")
+        overall_ok = overall_ok and ok
+
+    return overall_ok
 
 
 def run_stream_loop(port: serial.Serial, iterations: int = 10, interval: float = 0.5) -> None:
@@ -151,6 +163,7 @@ def main(argv: list[str]) -> int:
     parser.add_argument("--port", required=True, help="Serial port connected to the Uno (e.g. /dev/ttyACM0)")
     parser.add_argument("--baud", type=int, default=115200, help="Serial baud rate (default: 115200)")
     parser.add_argument("--clear-only", action="store_true", help="Run the CLEAR round-trip test only")
+    parser.add_argument("--clear-iterations", type=int, default=1, help="How many CLEAR round-trips to run")
     parser.add_argument("--stream-iterations", type=int, default=10, help="How many LED toggle messages to send")
     args = parser.parse_args(argv)
 
@@ -158,7 +171,7 @@ def main(argv: list[str]) -> int:
         time.sleep(2.0)  # allow board reset after opening the port
         port.reset_input_buffer()
 
-        clear_ok = run_clear_test(port)
+        clear_ok = run_clear_test(port, iterations=args.clear_iterations)
 
         if not args.clear_only:
             run_stream_loop(port, iterations=args.stream_iterations)

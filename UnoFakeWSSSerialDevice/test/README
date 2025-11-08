@@ -15,5 +15,5 @@ the Uno over a serial port. Example:
 
 ```
 pip install pyserial
-python test/test_wss_serial.py --port /dev/ttyACM0
+python test/test_wss_serial.py --port /dev/ttyACM0 --clear-iterations 5
 ```
