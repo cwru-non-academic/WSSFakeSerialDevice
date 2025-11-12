@@ -109,6 +109,26 @@ def format_bytes(data: bytes) -> str:
     return " ".join(f"{b:02X}" for b in data)
 
 
+def build_stream_payload(
+    message_id: int,
+    pa_triplet: tuple[int, int, int],
+    pw_triplet: tuple[int, int, int],
+    reserved_triplet: tuple[int, int, int] | None = None,
+) -> bytes:
+    """
+    Construct a streaming payload as [msgId][len][PA0..2][PW0..2][reserved0..2].
+    """
+
+    if reserved_triplet is None:
+        reserved_triplet = (0, 0, 0)
+
+    data = (*pa_triplet, *pw_triplet, *reserved_triplet)
+    if len(data) != 9:
+        raise ValueError("Streaming payload requires exactly 9 data bytes")
+
+    return bytes((message_id, len(data), *data))
+
+
 def run_clear_test(port: serial.Serial, iterations: int = 1) -> bool:
     payload = bytes([WSS_CLEAR, 0x01, 0x00])
     overall_ok = True
@@ -145,8 +165,9 @@ def run_clear_test(port: serial.Serial, iterations: int = 1) -> bool:
 
 
 def run_stream_loop(port: serial.Serial, iterations: int = 10, interval: float = 0.5) -> None:
-    on_payload = bytes([WSS_STREAM_ALL, 1, 1, 1, 1, 1, 1])
-    off_payload = bytes([WSS_STREAM_ALL, 0, 0, 0, 0, 0, 0])
+    stream_message = WSS_STREAM_ALL
+    on_payload = build_stream_payload(stream_message, (1, 1, 1), (1, 1, 1))
+    off_payload = build_stream_payload(stream_message, (0, 0, 0), (0, 0, 0))
 
     for idx in range(iterations):
         payload = on_payload if idx % 2 == 0 else off_payload

@@ -16,7 +16,7 @@ constexpr uint32_t kReplyJitterMs                = 0;  // Random additional late
 constexpr size_t   kMaxReplyChunkSize            = 0;  // If >0, split replies into random chunks up to this size
 constexpr uint16_t kReplyDropProbabilityPermille = 0;  // 0-1000 permille chance to drop a chunk
 constexpr uint8_t  kLedPin                       = LED_BUILTIN;
-constexpr bool     kLedActiveLow                 = true;
+constexpr bool     kLedActiveLow                 = false;
 
 enum class WssMessageId : uint8_t
 {
@@ -251,15 +251,36 @@ void copyTriplet(uint8_t* dest, const uint8_t* payload, size_t payloadSize, size
 
 void updateStreamingState(uint8_t messageId, const uint8_t* payload, size_t payloadSize)
 {
-    if (messageId == static_cast<uint8_t>(WssMessageId::StreamChangeAll) ||
-        messageId == static_cast<uint8_t>(WssMessageId::StreamChangeNoIPI))
+    if (messageId != static_cast<uint8_t>(WssMessageId::StreamChangeAll) &&
+        messageId != static_cast<uint8_t>(WssMessageId::StreamChangeNoIPI) &&
+        messageId != static_cast<uint8_t>(WssMessageId::StreamChangeNoPW) &&
+        messageId != static_cast<uint8_t>(WssMessageId::StreamChangeNoPA))
     {
-        if (payloadSize < 6) return;
-
-        copyTriplet(g_lastPa, payload, payloadSize, 0);
-        copyTriplet(g_lastPw, payload, payloadSize, 3);
-        refreshLedFromStreamingState();
+        return;
     }
+
+    if (payloadSize <= 1) return; // Need at least [messageId][something]
+
+    const uint8_t* streamData = payload + 1;
+    size_t streamDataSize = payloadSize - 1;
+
+    if (payloadSize >= 2)
+    {
+        const uint8_t declaredLen = payload[1];
+        const size_t bytesAfterLength = (payloadSize >= 2) ? payloadSize - 2 : 0;
+        const bool looksFramed = (declaredLen >= 6) && (bytesAfterLength >= declaredLen);
+        if (looksFramed)
+        {
+            streamData = payload + 2;
+            streamDataSize = declaredLen;
+        }
+    }
+
+    if (streamDataSize < 6) return;
+
+    copyTriplet(g_lastPa, streamData, streamDataSize, 0);
+    copyTriplet(g_lastPw, streamData, streamDataSize, 3);
+    refreshLedFromStreamingState();
 }
 
 void handleFrame(const uint8_t* frame, size_t frameSize)
